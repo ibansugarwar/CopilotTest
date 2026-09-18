@@ -1,0 +1,10 @@
+name: Update Project Date on Comment
+on:
+  issue_comment:
+    types: [created]
+
+jobs:
+  update-project:
+    runs-on: ubuntu-latest
+    steps:
+      # GitHub公式のアクション等を使って、該当Projectの「最終コメント日時」フィールド（日付型カスタムフィールド）を本日の日付に更新するスクリプトを記述
