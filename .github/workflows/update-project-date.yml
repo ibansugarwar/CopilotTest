@@ -1,10 +1,96 @@
-name: Update Project Date on Comment
+name: Update Project on Comment
+
 on:
   issue_comment:
     types: [created]
 
+permissions:
+  repository-projects: write
+  issues: write
+
 jobs:
-  update-project:
+  update-date:
     runs-on: ubuntu-latest
+    env:
+      PROJECT_OWNER: ibansugarwar
+      PROJECT_NUMBER: 1
+      FIELD_NAME: Last Commented
+
     steps:
-      # GitHub公式のアクション等を使って、該当Projectの「最終コメント日時」フィールド（日付型カスタムフィールド）を本日の日付に更新するスクリプトを記述
+      - name: Update the project's last-commented date
+        env:
+          GH_TOKEN: ${{ secrets.PROJECT_UPDATE_TOKEN }}
+          ISSUE_ID: ${{ github.event.issue.node_id }}
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          project_data=$(gh api graphql \
+            -f query='
+              query($owner: String!, $number: Int!, $field_name: String!) {
+                user(login: $owner) {
+                  projectV2(number: $number) {
+                    id
+                    field(name: $field_name) {
+                      ... on ProjectV2Field { id }
+                    }
+                  }
+                }
+              }' \
+            -f owner="$PROJECT_OWNER" \
+            -F number="$PROJECT_NUMBER" \
+            -f field_name="$FIELD_NAME")
+
+          project_id=$(jq -r '.data.user.projectV2.id // empty' <<< "$project_data")
+          field_id=$(jq -r '.data.user.projectV2.field.id // empty' <<< "$project_data")
+
+          if [[ -z "$project_id" || -z "$field_id" ]]; then
+            echo "Project or date field was not found. Check PROJECT_NUMBER and FIELD_NAME."
+            exit 1
+          fi
+
+          item_data=$(gh api graphql \
+            -f query='
+              query($issue_id: ID!) {
+                node(id: $issue_id) {
+                  ... on Issue {
+                    projectItems(first: 100) {
+                      nodes {
+                        id
+                        project { id }
+                      }
+                    }
+                  }
+                }
+              }' \
+            -f issue_id="$ISSUE_ID")
+
+          item_id=$(jq -r --arg project_id "$project_id" \
+            '.data.node.projectItems.nodes[]? | select(.project.id == $project_id) | .id' \
+            <<< "$item_data")
+
+          if [[ -z "$item_id" ]]; then
+            echo "This issue is not registered in the target project; skipping."
+            exit 0
+          fi
+
+          current_date=$(date -u +%Y-%m-%d)
+
+          gh api graphql \
+            -f query='
+              mutation($project: ID!, $item: ID!, $field: ID!, $value: String!) {
+                updateProjectV2ItemFieldValue(input: {
+                  projectId: $project
+                  itemId: $item
+                  fieldId: $field
+                  value: { date: $value }
+                }) {
+                  projectV2Item { id }
+                }
+              }' \
+            -f project="$project_id" \
+            -f item="$item_id" \
+            -f field="$field_id" \
+            -f value="$current_date"
+
+          echo "Updated $FIELD_NAME to $current_date."
