@@ -19,7 +19,7 @@ jobs:
     steps:
       - name: Update the project's last-commented date
         env:
-          GH_TOKEN: ${{ secrets.PROJECT_UPDATE_TOKEN }}
+          GH_TOKEN: ${{ secrets.PROJECT_UPDATE_TOKEN || github.token }}
           ISSUE_ID: ${{ github.event.issue.node_id }}
         shell: bash
         run: |
